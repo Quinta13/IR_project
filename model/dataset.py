@@ -14,7 +14,8 @@ from sklearn.datasets import fetch_rcv1
 from sklearn.random_projection import johnson_lindenstrauss_min_dim, SparseRandomProjection
 from tqdm import tqdm
 
-from io_ import get_dataset_dir, get_data_fp, store_sparse_matrix, make_dir, load_sparse_matrix
+from io_ import get_dataset_dir, get_data_fp, store_sparse_matrix, make_dir, load_sparse_matrix, get_sample_dir, \
+    store_json
 from io_ import log
 
 
@@ -73,6 +74,16 @@ class DocumentsCollection:
         return self._mat[doc_id]
 
     # INFORMATION'S
+
+    @property
+    def data(self) -> csr_matrix:
+        """
+        Data
+
+        :return: data.
+        """
+
+        return self._mat
 
     @property
     def n_docs(self) -> int:
@@ -272,6 +283,33 @@ class DocumentsCollection:
         reduced = transformer.fit_transform(self._mat).toarray()
 
         return reduced
+
+    # SAVE
+
+    def save(self, name: str):
+        """
+        Save information to proper directory.
+
+        :param name: dataset name
+        """
+
+        log(info="Saving collection information ")
+
+        sample_dir = get_sample_dir(sample_name=name)
+        make_dir(path_=sample_dir)
+
+        info_fp = path.join(sample_dir, "info.json")
+
+        # Create JSON
+        info: Dict[str, int | float] = {
+            "n_docs": int(self.n_docs),
+            "n_terms": int(self.n_terms),
+            "tot_d_gap": int(self.tot_d_gap),
+            "avg_d_gap": float(self.avg_d_gap),
+            "max_d_gap": int(self.max_d_gap),
+        }
+
+        store_json(path_=info_fp, obj=info)
 
 
 class RCV1Downloader:

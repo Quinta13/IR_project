@@ -9,9 +9,10 @@ This module contains input/output functions for various tasks
 
 from __future__ import annotations
 
+import json
 import os
 from os import path
-from typing import Dict
+from typing import Dict, List
 
 from scipy.sparse import csr_matrix, load_npz, save_npz
 
@@ -119,6 +120,17 @@ def get_dataset_dir() -> str:
     return path.join(get_root_dir(), DIR_NAMES["dataset"])
 
 
+def get_sample_dir(sample_name: str) -> str:
+    """
+    Get sample directory for given sample name.
+
+    :param sample_name: sample name.
+    :return: path to the sample directory.
+    """
+
+    return path.join(get_dataset_dir(), sample_name)
+
+
 # FILES
 
 
@@ -143,6 +155,39 @@ def get_data_sorted_fp() -> str:
 
 
 # OPERATIONS
+
+def load_json(path_: str) -> Dict | List:
+    """
+    Load a dictionary or list from a local JSON file.
+
+    :param path_: path to the JSON file to be read.
+    :return: loaded JSON object (dictionary or list).
+    """
+
+    log_io(info=f"Loading {path_} ")
+
+    with open(path_) as json_file:
+        return json.load(fp=json_file)
+
+
+def store_json(path_: str, obj: Dict | List):
+    """
+    Store a dictionary or list as a JSON file at the specified path.
+
+    :param path_: path for the JSON file (to be created or overwritten).
+    :param obj: JSON object (dictionary or list) to be stored.
+    """
+
+    json_string = json.dumps(obj=obj)
+
+    # Check if file already existed
+    info_op = "Overwriting" if path.exists(path_) else "Saving"
+
+    log_io(info=f"{info_op} {path_} ")
+
+    with open(path_, 'w') as json_file:
+        json_file.write(json_string)
+
 
 def load_sparse_matrix(path_: str) -> csr_matrix:
     """

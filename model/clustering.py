@@ -4,6 +4,7 @@ Clustering
 -------------------------
 """
 from abc import ABC, abstractmethod
+from os import path
 from statistics import mean
 from typing import Dict
 
@@ -13,7 +14,7 @@ from scipy.cluster.hierarchy import fclusterdata
 from scipy.spatial.distance import pdist
 from sklearn.cluster import KMeans
 
-from io_ import log
+from io_ import log, get_dataset_dir, store_json, get_sample_dir
 
 
 class Clusters:
@@ -126,17 +127,16 @@ class Clusters:
     # MEDOIDS
 
     @property
-    def medoids(self) -> Dict[int, np.ndarray]:
+    def medoids(self) -> np.ndarray:
         """
         Return medoid for each cluster
 
         :return: cluster medoids
         """
 
-        return {
-            i: self._get_medoid(cluster_idx=i)
-            for i in self.clusters.keys()
-        }
+        return np.stack([
+            self._get_medoid(cluster_idx=i) for i in self.clusters.keys()
+        ])
 
     def _get_medoid(self, cluster_idx: int) -> np.ndarray:
         """
@@ -146,8 +146,10 @@ class Clusters:
         :return: cluster medoid.
         """
 
+        # Extract cluster array
         arr = self[cluster_idx]
 
+        # Compute pairwise distances
         pairwise_distances = pdist(arr)
 
         # Convert the pairwise distances to a square distance matrix
@@ -159,10 +161,11 @@ class Clusters:
         # Find the index of the data point with the minimum sum of distances
         medoid_index = np.argmin(sum_distances)
 
-        # The medoid is the data point at the medoid_index
+        # Extract the medoid
         medoid = arr[medoid_index]
 
         return medoid
+
 
 class ClusteringModel(ABC):
     """
@@ -245,6 +248,32 @@ class ClusteringModel(ABC):
             mat=self._mat,
             labels=self.labels
         )
+
+    # SAVE
+
+    @staticmethod
+    def get_labeling_fp(name: str) -> str:
+        """
+        Return labeling file path associated to given file name.
+
+        :param name: name of collection
+        :return: labeling file path
+        """
+
+        return path.join(get_sample_dir(sample_name=name), "labeling.json")
+
+    def save(self, name: str):
+        """
+        Stores output labels locally
+
+        :param name: name of collection
+        """
+
+        fp = self.get_labeling_fp(name=name)
+
+        labels_int = [int(label) for label in self.labels]
+
+        store_json(path_=fp, obj=labels_int)
 
 
 class KMeansClustering(ClusteringModel):
