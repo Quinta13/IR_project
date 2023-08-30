@@ -4,6 +4,7 @@ Utils
 -------------------------
 """
 
+from dataclasses import dataclass
 from os import path
 from typing import Dict
 
@@ -15,23 +16,52 @@ from sklearn.random_projection import johnson_lindenstrauss_min_dim, SparseRando
 from tqdm import tqdm
 
 from io_ import get_dataset_dir, get_data_fp, store_sparse_matrix, make_dir, load_sparse_matrix, get_sample_dir, \
-    store_json
+    store_json, load_json
 from io_ import log
 
 
-class DocumentsCollection:
+@dataclass
+class DataConfig:
     """
-    This class ... TODO
+    This class contains settings for a certain configuration, in particular
+     - `name` is the dataset name for the specific configuration; a specific directory will be dedicated to store
+              files associated with this specific configuration.
+    - `docs` it specifies to use only the first `docs` (rows) of the original collection.
+    - `terms` it specifies to use only the first `terms` (columns) of the original collection.
+    - `eps` it specifics the approximation error to use when projecting to a new vector space.
+    """
+    name: str
+    docs: int
+    terms: int
+    eps: float
+
+    def __str__(self) -> str:
+
+        docs = self.docs if self.docs != -1 else "all"
+        terms = self.terms if self.terms != -1 else "all"
+
+        return f"{self.name} [Docs: {docs}; Terms: {terms}; Approximation error: {self.eps}]"
+
+    def __repr__(self) -> str:
+
+        return str(self)
+
+
+class DataCollection:
+    """
+    This class represent a collection of data (tf-idf matrix) and allows operation like compute the gap
     """
 
     # CONSTRUCTOR
 
-    def __init__(self, mat: csr_matrix):
+    def __init__(self, config: DataConfig, mat: csr_matrix):
         """
         Initialize DocumentsCollection instance.
         """
 
         self._mat: csr_matrix = mat
+        self._config = config
+
         self._gaps: Dict = dict()  # if empty, information need to be computed
 
     # REPRESENTATION
@@ -43,7 +73,7 @@ class DocumentsCollection:
         :returns: string representation of the object.
         """
 
-        return f"DocumentsCollection[Docs: {self.n_docs}; Terms: {self.n_terms}; Nonzero: {self.nonzero}]"
+        return f"DataCollection({self._config.name})[Docs: {self.n_docs}; Terms: {self.n_terms}; Nonzero: {self.nonzero}; Info avaialable : {self._info_available}]"
 
     def __repr__(self) -> str:
         """
@@ -133,45 +163,56 @@ class DocumentsCollection:
         if self._gaps:
             return self._gaps
 
-        # Need to compute gaps
-        log(info="Computing gaps per term")
+        if not self._info_available:
 
-        # Fields indices and indptr for faster access
-        indices = self._mat.indices
-        indptr = self._mat.indptr
+            # Need to compute gaps
+            log(info="Computing gaps per term")
 
-        # Accumulators per term
-        tot_d_gap = np.zeros(self.n_terms, dtype=int)  # gap accumulator per term
-        tot_gaps = np.zeros(self.n_terms, dtype=int)  # number of gaps per term
-        max_gap = np.zeros(self.n_terms, dtype=int)  # maximum gap per term
-        term_last_doc_id = np.zeros(self.n_terms, dtype=int)  # last doc-id seen per term, used to compute d-gap
+            # Fields indices and indptr for faster access
+            indices = self._mat.indices
+            indptr = self._mat.indptr
 
-        # Iterate through document (rows)
-        for doc_id in tqdm(range(self.n_docs)):
+            # Accumulators per term
+            tot_d_gap = np.zeros(self.n_terms, dtype=int)  # gap accumulator per term
+            tot_gaps = np.zeros(self.n_terms, dtype=int)  # number of gaps per term
+            max_gap = np.zeros(self.n_terms, dtype=int)  # maximum gap per term
+            term_last_doc_id = np.zeros(self.n_terms, dtype=int)  # last doc-id seen per term, used to compute d-gap
 
-            # Get the indices and data for the current document
-            doc_indices = indices[indptr[doc_id]:indptr[doc_id + 1]]
+            # Iterate through document (rows)
+            for doc_id in tqdm(range(self.n_docs)):
 
-            # Iterate through the terms in the current document
-            for term_id in doc_indices:
+                # Get the indices and data for the current document
+                doc_indices = indices[indptr[doc_id]:indptr[doc_id + 1]]
 
-                # Compute the d-gap
-                d_gap = doc_id - term_last_doc_id[term_id]
+                # Iterate through the terms in the current document
+                for term_id in doc_indices:
+                    # Compute the d-gap
+                    d_gap = doc_id - term_last_doc_id[term_id]
 
-                # Update information
-                tot_d_gap[term_id] += d_gap
-                tot_gaps[term_id] += 1
-                max_gap[term_id] = max(max_gap[term_id], d_gap)
+                    # Update information
+                    tot_d_gap[term_id] += d_gap
+                    tot_gaps[term_id] += 1
+                    max_gap[term_id] = max(max_gap[term_id], d_gap)
 
-                # Update the last doc-id for the current term
-                term_last_doc_id[term_id] = doc_id
+                    # Update the last doc-id for the current term
+                    term_last_doc_id[term_id] = doc_id
 
-        self._gaps = {
-            "tot_d_gap": tot_d_gap,
-            "tot_gaps": tot_gaps,
-            "avg_d_gap": tot_d_gap / tot_gaps,
-            "max_d_gap": max_gap
-        }
+            self._gaps = {
+                "tot_d_gap": tot_d_gap,
+                "avg_d_gap": np.around(tot_d_gap / tot_gaps, decimals=3),  # round to 3 decimals
+                "max_d_gap": max_gap
+            }
+
+        else:
+
+            log(info=f"Information was saved locally at {self._info_fp}. Loading from disk. ")
+            info = self._load_info()
+
+            self._gaps = {
+                "tot_d_gap": info["tot_d_gap_pterm"],
+                "avg_d_gap": info["avg_d_gap_pterm"],
+                "max_d_gap": info["max_d_gap_pterm"],
+            }
 
         return self._gaps
 
@@ -224,7 +265,7 @@ class DocumentsCollection:
         # Number of points per bin
         points_per_bin = len(data) // num_bins
 
-        # Calculate bin averages
+        # Calculate bin averagesshift
         binned_data = data[:num_bins * points_per_bin].reshape(-1, points_per_bin)
         averages = np.mean(binned_data, axis=1)
 
@@ -265,16 +306,15 @@ class DocumentsCollection:
 
     # DIMENSIONALITY REDUCTION
 
-    def embed(self, eps: float) -> np.ndarray:
+    def embed(self) -> np.ndarray:
         """
         Embed sparse tf-idf matrix into a dense vector space using Johnson-Lindenstrauss lemma
 
-        :param eps: maximum distortion rate in the range (0, 1).
         :return: vector projected in lower dimensional space.
         """
 
         # Compute target number of components
-        n_components = johnson_lindenstrauss_min_dim(n_samples=self._mat.shape[0], eps=eps)
+        n_components = johnson_lindenstrauss_min_dim(n_samples=self._mat.shape[0], eps=self._config.eps)
 
         # Create a Sparse Random Projection object
         transformer = SparseRandomProjection(n_components=n_components)
@@ -284,9 +324,26 @@ class DocumentsCollection:
 
         return reduced
 
-    # SAVE
+    # SAVE / LOAD
 
-    def save(self, name: str):
+    @property
+    def _info_fp(self) -> str:
+        """
+        :return: path to info file
+        """
+
+        sample_dir = get_sample_dir(sample_name=self._config.name)
+        return path.join(sample_dir, "info.json")
+
+    @property
+    def _info_available(self) -> bool:
+        """
+        Check if information is already available on disk
+        """
+
+        return path.exists(path=self._info_fp)
+
+    def save_info(self, name: str):
         """
         Save information to proper directory.
 
@@ -298,7 +355,7 @@ class DocumentsCollection:
         sample_dir = get_sample_dir(sample_name=name)
         make_dir(path_=sample_dir)
 
-        info_fp = path.join(sample_dir, "info.json")
+        info_fp = self._info_fp
 
         # Create JSON
         info: Dict[str, int | float] = {
@@ -307,9 +364,24 @@ class DocumentsCollection:
             "tot_d_gap": int(self.tot_d_gap),
             "avg_d_gap": float(self.avg_d_gap),
             "max_d_gap": int(self.max_d_gap),
+            "tot_d_gap_pterm": [int(d_gap) for d_gap in self.gaps["tot_d_gap"]],
+            "avg_d_gap_pterm": [float(d_gap) for d_gap in self.gaps["avg_d_gap"]],
+            "max_d_gap_pterm": [int(d_gap) for d_gap in self.gaps["max_d_gap"]]
         }
 
         store_json(path_=info_fp, obj=info)
+
+    def _load_info(self) -> Dict[str, int | float]:
+        """
+
+        """
+
+        info = load_json(path_=self._info_fp)
+
+        for key in ["tot_d_gap_pterm", "avg_d_gap_pterm", "max_d_gap_pterm"]:
+            info[key] = np.array(info[key])
+
+        return info
 
 
 class RCV1Downloader:
@@ -397,7 +469,7 @@ class RCV1Loader:
 
     # CONSTRUCTOR
 
-    def __init__(self):
+    def __init__(self, config: DataConfig):
         """
         Initialize the RCV1Loader instance.
 
@@ -406,6 +478,7 @@ class RCV1Loader:
         """
 
         self._data_fp: str = get_data_fp()
+        self._config: DataConfig = config
 
         if not path.exists(self._data_fp):
             raise Exception(f"File {self._data_fp} is not present, use RCV1Downloader to download it.")
@@ -419,7 +492,7 @@ class RCV1Loader:
         :returns: string representation of the object.
         """
 
-        return f"RCV1Loader [File: {self._data_fp}]"
+        return f"RCV1Loader({self._config.name}) [File: {self._data_fp}]"
 
     def __repr__(self) -> str:
         """
@@ -432,13 +505,10 @@ class RCV1Loader:
 
     # LOAD
 
-    def load(self, docs: int = -1, terms: int = -1,
-             sort_docs: bool = False, sort_terms: bool = False) -> DocumentsCollection:
+    def load(self, sort_docs: bool = False, sort_terms: bool = False) -> DataCollection:
         """
         Load RCV1 dataset.
 
-        :param docs: number of documents (rows) to load, if not given all documents are loaded.
-        :param terms: number of terms (columns) to load, if not given all terms are loaded.
         :param sort_docs: if `True` all documents are sorted by decreasing number of distinct terms.
         :param sort_terms: if `True` all documents are sorted by decreasing number frequency in terms.
         :return: loaded sparse matrix
@@ -449,11 +519,11 @@ class RCV1Loader:
         mat = load_sparse_matrix(path_=self._data_fp)
 
         # Reduce matrix to given number of documents and terms
-        tot_docs, tot_terms = mat.shape
-        if docs == -1:
-            docs = tot_docs
-        if terms == -1:
-            terms = tot_terms
+        tot_docs, tot_terms= mat.shape
+
+        docs = tot_docs if self._config.docs == -1 else self._config.docs
+        terms = tot_terms if self._config.terms == -1 else self._config.terms
+
         mat = mat[:docs, :terms]
 
         # Remove non-informative columns
@@ -474,4 +544,4 @@ class RCV1Loader:
             sorted_cols_indices = np.argsort(mat.getnnz(axis=0), axis=0)[::-1]
             mat = mat[:, sorted_cols_indices]
 
-        return DocumentsCollection(mat=mat)
+        return DataCollection(mat=mat, config=self._config)

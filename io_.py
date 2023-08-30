@@ -14,6 +14,7 @@ import os
 from os import path
 from typing import Dict, List
 
+import numpy as np
 from scipy.sparse import csr_matrix, load_npz, save_npz
 
 """
@@ -216,3 +217,32 @@ def store_sparse_matrix(path_: str, mat: csr_matrix):
     log_io(info=f"{info_op} {path_}. ")
 
     save_npz(file=path_, matrix=mat)
+
+
+def load_dense_matrix(path_: str) -> np.ndarray:
+    """
+    Load a dense matrix from disk.
+
+    :param path_: path to the .npy file to be read.
+    :return: loaded dense matrix.
+    """
+
+    log_io(info=f"Loading {path_}. ")
+
+    return np.load(file=path_)
+
+
+def store_dense_matrix(path_: str, mat: np.ndarray):
+    """
+    Store a dense matrix as a .npy file at the specified path.
+
+    :param path_: path for the .npy file (to be created or overwritten).
+    :param mat: dense matrix to be stored.
+    """
+
+    # Check if file already existed
+    info_op = "Overwriting" if path.exists(path_) else "Saving"
+
+    log_io(info=f"{info_op} {path_}. ")
+
+    np.save(file=path_, arr=mat)
