@@ -13,18 +13,18 @@ from scipy.cluster._optimal_leaf_ordering import squareform
 from scipy.spatial.distance import pdist
 from sklearn.cluster import KMeans
 
-from io_ import log, store_json, get_sample_dir, make_dir, load_json, store_dense_matrix, load_dense_matrix
-from model.dataset import DataConfig, RCV1Loader
+from io_ import log, store_json, get_collection_dir, make_dir, load_json, store_dense_matrix, load_dense_matrix
+from model.settings import DataConfig
 
 
-class Clusters:
+class CollectionClusters:
     """
     This class ... TODO
     """
 
     # CONSTRUCTOR
 
-    def __init__(self, mat: np.ndarray, labels: np.ndarray, name: str):
+    def __init__(self, mat: np.ndarray, labels: np.ndarray, data_name: str, load_medoids: bool = True):
         """
         Initialize an instance Clusters.
         
@@ -32,10 +32,9 @@ class Clusters:
         :param labels: clustering labels.
         """
 
+        self._data_name = data_name
+
         # Create slices depending on cluster indices
-
-        self._name = name
-
         unique_labels = np.unique(labels)
         cluster_indices = {label: np.where(labels == label)[0] for label in unique_labels}
 
@@ -45,6 +44,14 @@ class Clusters:
         }
 
         self._medoids = np.array([])
+        self._medoids_computed: bool = False
+
+        if load_medoids:
+            log(info="Try to retrieve medoids info from disk")
+            if self._medoid_available:
+                self._load_medoids()
+            else:
+                log(info="Medoids not available, need to be computed")
 
     # REPRESENTATION
 
@@ -56,7 +63,7 @@ class Clusters:
         """
 
         return f"ClusterDataSplit [Data: {len(self)}, Clusters: {self.n_cluster}, " \
-               f"Mean-per-Cluster: {self.mean_cardinality:.3f}]"
+               f"Mean-per-Cluster: {self.mean_cardinality:.3f}; Medoids computed: {self._medoids_computed}]"
 
     def __repr__(self) -> str:
         """
@@ -116,7 +123,7 @@ class Clusters:
         :return: number of items for each cluster.
         """
 
-        return {k: len(v) for k, v in self.clusters.items()}
+        return {k: v.shape[0] for k, v in self.clusters.items()}
 
     @property
     def mean_cardinality(self) -> float:
@@ -138,22 +145,16 @@ class Clusters:
         :return: cluster medoids
         """
 
-        if len(self._medoids) != 0:
+        if self._medoids_computed:
             return self._medoids
 
-        if not self._medoid_available:
+        log(info="Computing medoids")
 
-            log(info="Computing medoids")
+        self._medoids = np.stack([
+            self._get_medoid(cluster_idx=i) for i in self.clusters.keys()
+        ])
 
-            self._medoids = np.stack([
-                self._get_medoid(cluster_idx=i) for i in self.clusters.keys()
-            ])
-
-        else:
-
-            log(info="Loading medoids from disk")
-
-            self._medoids = self._load_medoids()
+        self._medoids_computed = True
 
         return self._medoids
 
@@ -168,7 +169,7 @@ class Clusters:
         # Extract cluster array
         arr = self[cluster_idx]
 
-        # Compute pairwise distances
+        """# Compute pairwise distances
         pairwise_distances = pdist(arr)
 
         # Convert the pairwise distances to a square distance matrix
@@ -182,8 +183,12 @@ class Clusters:
 
         # Extract the medoid
         medoid = arr[medoid_index]
+        """
 
-        return medoid
+        # centroid
+        arr = self[cluster_idx]
+
+        return arr.mean(axis=0)
 
     # SAVE / LOAD
 
@@ -196,13 +201,13 @@ class Clusters:
         :return: path to medoid fp
         """
 
-        sample_dir = get_sample_dir(sample_name=self._name)
+        sample_dir = get_collection_dir(collection_name=self._data_name)
         return path.join(sample_dir, "medoids.npy")
 
     @property
     def _medoid_available(self) -> bool:
         """
-        If medoids file is avaialbable
+        If medoids file is available
         """
 
         return path.exists(self._medoid_fp)
@@ -216,16 +221,15 @@ class Clusters:
 
         log(info="Saving medoids ")
 
-        sample_dir = get_sample_dir(sample_name=self._name)
+        sample_dir = get_collection_dir(collection_name=self._data_name)
         make_dir(path_=sample_dir)
 
         store_dense_matrix(path_=self._medoid_fp, mat=self._medoids)
 
-    def _load_medoids(self) -> np.ndarray:
+    def _load_medoids(self):
 
-        return load_dense_matrix(path_=self._medoid_fp)
-
-
+        self._medoids = load_dense_matrix(path_=self._medoid_fp)
+        self._medoids_computed = True
 
 
 class ClusteringModel(ABC):
@@ -235,27 +239,35 @@ class ClusteringModel(ABC):
 
     # CONSTRUCTOR
 
-    def __init__(self, mat: np.ndarray, name: str):
+    def __init__(self, mat: np.ndarray, data_name: str, load_labels: bool = True):
         """
         Initialize an instance ClusteringModel.
 
         """
 
         self._mat: np.ndarray = mat
-        self._name = name
+        self._data_name = data_name
 
         self._labels: np.ndarray = np.array([])
+        self._labels_computed = False
+
+        if load_labels:
+            log(info="Try to retrieve labels info from disk")
+            if self._labeling_available:
+                self._load_labels()
+            else:
+                log(info="Labeling is not available, need to be computed")
 
     # REPRESENTATION
 
     def __str__(self) -> str:
         """
-        Return a string representation of the KMeansClustering object.
+        Return a string representation of the Clustering object.
 
         :returns: string representation of the object.
         """
 
-        return f"Clustering[Items: {len(self)}; Labels-available: {self._labeling_available}]"
+        return f"Clustering[Items: {len(self)}; Labeling computed: {self._labels_computed}]"
 
     def __repr__(self) -> str:
         """
@@ -291,17 +303,17 @@ class ClusteringModel(ABC):
         pass
 
     @property
-    def clusters(self) -> Clusters:
+    def clusters(self) -> CollectionClusters:
         """
         Return clusters found by the model.
 
         :return: clusters.
         """
 
-        return Clusters(
+        return CollectionClusters(
             mat=self._mat,
             labels=self.labels,
-            name=self._name
+            data_name=self._data_name
         )
 
     # SAVE / LOAD
@@ -314,7 +326,7 @@ class ClusteringModel(ABC):
         :return: labeling file path
         """
 
-        return path.join(get_sample_dir(sample_name=self._name), "labeling.json")
+        return path.join(get_collection_dir(collection_name=self._data_name), "labeling.json")
 
     @property
     def _labeling_available(self) -> bool:
@@ -341,7 +353,8 @@ class ClusteringModel(ABC):
         Load labels
         """
 
-        return np.array(load_json(path_=self._labeling_fp))
+        self._labels = np.array(load_json(path_=self._labeling_fp))
+        self._labels_computed = True
 
 
 class KMeansClustering(ClusteringModel):
@@ -351,7 +364,7 @@ class KMeansClustering(ClusteringModel):
 
     # CONSTRUCTOR
 
-    def __init__(self, mat: np.ndarray, name: str, k: int):
+    def __init__(self, mat: np.ndarray, data_name: str, k: int, load_labels: bool = True):
         """
         Initialize an instance of k-Means clustering.
 
@@ -359,10 +372,9 @@ class KMeansClustering(ClusteringModel):
         :param k: number of clusters to find.
         """
 
-        super().__init__(mat=mat, name=name)
+        super().__init__(mat=mat, data_name=data_name, load_labels=load_labels)
 
         self._k: int = k
-        self._kmeans: KMeans = KMeans(n_clusters=k, n_init='auto')
 
     # REPRESENTATION
 
@@ -373,7 +385,7 @@ class KMeansClustering(ClusteringModel):
         :returns: string representation of the object.
         """
 
-        return f"KMeansClustering[Items: {len(self)}; k: {self._k};  Labeling-available: {self._labeling_available}]"
+        return f"KMeansClustering[Items: {len(self)}; k: {self._k};  Labeling computed: {self._labels_computed}]"
 
     # LABELS
 
@@ -385,18 +397,15 @@ class KMeansClustering(ClusteringModel):
         :return: clustering labels.
         """
 
-        if len(self._labels) != 0:
+        if self._labels_computed:
             return self._labels
 
-        if not self._labeling_available:
+        log(info="Fitting K-Means model. ")
 
-            log(info="Fitting K-Means model. ")
-            self._kmeans.fit_predict(X=self._mat)
-            self._labels = self._kmeans.labels_
+        kmeans: KMeans = KMeans(n_clusters=self._k, n_init='auto')
+        kmeans.fit_predict(X=self._mat)
 
-        else:
-            log(info="Labels already computed. Loading from disk. ")
-
-            self._labels = self._load_labels()
+        self._labels = kmeans.labels_
+        self._labels_computed = True
 
         return self._labels

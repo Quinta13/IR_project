@@ -108,7 +108,7 @@ class TravellingSalesmanProblem:
     # SOLUTION
 
     @property
-    def solutions(self) -> np.ndarray:
+    def order(self) -> np.ndarray:
         """
         Return solution
 
@@ -127,7 +127,9 @@ class TravellingSalesmanProblem:
         index = self._routing.Start(0)
 
         # Perform routing
+        i = 0
         while not self._routing.IsEnd(index):
+            i += 1
             order.append(self._manager.IndexToNode(index))
             index = solution.Value(self._routing.NextVar(index))
 
@@ -144,4 +146,4 @@ class TravellingSalesmanProblem:
         :return: sorted items.
         """
 
-        return self._mat[self.solutions]
+        return self._mat[self.order]

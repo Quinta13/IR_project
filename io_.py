@@ -121,15 +121,15 @@ def get_dataset_dir() -> str:
     return path.join(get_root_dir(), DIR_NAMES["dataset"])
 
 
-def get_sample_dir(sample_name: str) -> str:
+def get_collection_dir(collection_name: str) -> str:
     """
     Get sample directory for given sample name.
 
-    :param sample_name: sample name.
+    :param collection_name: sample name.
     :return: path to the sample directory.
     """
 
-    return path.join(get_dataset_dir(), sample_name)
+    return path.join(get_dataset_dir(), collection_name)
 
 
 # FILES
