@@ -29,7 +29,7 @@ This boolean flag controls whether general logging is enabled or disabled,
 """
 
 LOG: bool = True
-LOG_IO: bool = True
+LOG_IO: bool = False
 
 
 # DIRECTORIES AND FILES

@@ -1,13 +1,13 @@
 """
-Dataset
--------------------------
+RCV1 Dataset
+------------
 
 This file contains classes related to the RCV1 dataset, including data downloading, loading, and preprocessing.
 
 Classes:
-- RCV1Collection: Represents a collection of data with tf-idf matrices.
-- RCV1Downloader: Provides functionality to download and extract the RCV1 dataset.
-- RCV1Loader: Provides functionality to load and preprocess the RCV1 dataset.
+    - RCV1Collection: Represents a collection of data with tf-idf matrices.
+    - RCV1Downloader: Provides functionality to download and extract the RCV1 dataset.
+    - RCV1Loader: Provides functionality to load and preprocess the RCV1 dataset.
 
 Each class offers specific functionality for handling different aspects of the RCV1 dataset, from representing data to downloading and preprocessing it.
 """
@@ -94,7 +94,6 @@ class RCV1Collection:
         """
 
         return self._data
-
 
     @property
     def n_docs(self) -> int:
@@ -238,6 +237,7 @@ class RCV1Loader:
         """
 
         self._data_fp: str = get_data_fp()
+        self._data = load_sparse_matrix(path_=self._data_fp)
 
         if not path.exists(self._data_fp):
             raise Exception(f"File {self._data_fp} is not present. Use RCV1Downloader to download it.")
@@ -276,29 +276,27 @@ class RCV1Loader:
         :return: An instance of RCV1Collection containing the loaded data.
         """
 
-        # Load matrix
-        log(info="Loading matrix. ")
-        mat = load_sparse_matrix(path_=self._data_fp)
+        data = self._data.copy()
 
         # Reduce matrix to given number of documents and terms
-        tot_docs, tot_terms = mat.shape
+        tot_docs, tot_terms = data.shape
         docs = tot_docs if n_docs == -1 else n_docs
         terms = tot_terms if n_terms == -1 else n_terms
-        mat = mat[:docs, :terms]
+        data = data[:docs, :terms]
 
         # Remove non-informative columns
-        cols_zero = np.where(mat.getnnz(axis=0) == 0)[0]
-        mask = np.logical_not(np.isin(np.arange(mat.shape[1]), cols_zero))
-        mat = mat[:, mask]
+        cols_zero = np.where(data.getnnz(axis=0) == 0)[0]
+        mask = np.logical_not(np.isin(np.arange(data.shape[1]), cols_zero))
+        data = data[:, mask]
 
         # Sort documents (rows) by number of distinct terms
         if sort_docs:
-            sorted_row_indices = np.argsort(mat.getnnz(axis=1), axis=0)[::-1]
-            mat = mat[sorted_row_indices]
+            sorted_row_indices = np.argsort(data.getnnz(axis=1), axis=0)[::-1]
+            data = data[sorted_row_indices]
 
         # Sort terms (columns) by their frequency in the corpus
         if sort_terms:
-            sorted_cols_indices = np.argsort(mat.getnnz(axis=0), axis=0)[::-1]
-            mat = mat[:, sorted_cols_indices]
+            sorted_cols_indices = np.argsort(data.getnnz(axis=0), axis=0)[::-1]
+            data = data[:, sorted_cols_indices]
 
-        return RCV1Collection(data=mat)
+        return RCV1Collection(data=data)
