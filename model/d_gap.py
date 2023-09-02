@@ -342,17 +342,19 @@ class DGapInference:
 
     # CONSTRUCTOR
 
-    def __init__(self, d_gap_original: DGapComputation, d_gap_reassigned: DGapComputationReassigned):
+    def __init__(self, d_gap_original: DGapComputation, d_gap_reassigned: DGapComputationReassigned, data_name: str):
         """
         Initialize a DGapInference instance.
 
         :param d_gap_original: d-gap statistics with original doc-id order.
         :param d_gap_reassigned: d-gap statistics with reassigned doc-ids.
+        :param data_name: name specific of certain data configuration.
         """
 
         # Input attributed
         self._d_gap_original: DGapComputation = d_gap_original
         self._d_gap_reassigned: DGapComputationReassigned = d_gap_reassigned
+        self._data_name = data_name
 
         # Compute d-gaps
         self._d_gap_original.compute_d_gaps()
@@ -392,9 +394,8 @@ class DGapInference:
         gaps_reassigned = self._d_gap_reassigned.avg_d_gap_pterm
 
         # Compute d-gap improvement for each term in percentage
-        improvement = (gaps_original - gaps_reassigned) / gaps_original * 100
+        improvement = (gaps_original - gaps_reassigned + 0.001) / gaps_original * 100
 
-        # Clamp values to zero if there was no improvement
         improvement[improvement < 0] = 0
 
         return improvement
@@ -408,3 +409,42 @@ class DGapInference:
         """
 
         return np.mean(self.compression_pterm)
+
+    def plot_avg_d_gap(self):
+        """
+        Plot the trend of data information.
+        """
+
+        for data, label in zip(
+                [self._d_gap_original.avg_d_gap_pterm, self._d_gap_reassigned.avg_d_gap_pterm],
+                ["Original", "Reassigned"]
+        ):
+
+            # Define number of bins
+            num_bins = 1000
+
+            # Number of points per bin
+            points_per_bin = len(data) // num_bins
+
+            # Calculate bins average
+            binned_data = data[:num_bins * points_per_bin].reshape(-1, points_per_bin)
+            averages = np.mean(binned_data, axis=1)
+
+            # X values
+            x_vals = np.array(range(num_bins))
+
+            # Plot averages
+            plt.plot(x_vals, averages, label=label)
+
+        # Title and labels
+        plt.xlabel('term-id')
+        plt.ylabel('d-gap')
+        plt.title(f"Average d-gap comparison")
+        plt.legend()
+
+        # Save
+        out = path.join(get_collection_dir(collection_name=self._data_name), "avg_d_gap.png")
+        plt.savefig(out)
+
+        # Show
+        plt.show()

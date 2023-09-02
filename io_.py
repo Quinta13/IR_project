@@ -28,7 +28,7 @@ This boolean flag controls whether general logging is enabled or disabled,
 
 """
 
-LOG: bool = True
+LOG: bool = False
 LOG_IO: bool = False
 
 
