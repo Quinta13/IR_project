@@ -9,7 +9,8 @@ Classes:
     - RCV1Downloader: Provides functionality to download and extract the RCV1 dataset.
     - RCV1Loader: Provides functionality to load and preprocess the RCV1 dataset.
 
-Each class offers specific functionality for handling different aspects of the RCV1 dataset, from representing data to downloading and preprocessing it.
+Each class offers specific functionality for handling different aspects of the RCV1 dataset,
+ from representing data to downloading and preprocessing it.
 """
 
 
@@ -18,10 +19,11 @@ from os import path
 import numpy as np
 from scipy.sparse import csr_matrix
 from sklearn.datasets import fetch_rcv1
-from sklearn.random_projection import johnson_lindenstrauss_min_dim, SparseRandomProjection
+from sklearn.decomposition import TruncatedSVD
+from sklearn.preprocessing import normalize
 
-from io_ import get_dataset_dir, get_data_fp, store_sparse_matrix, make_dir, load_sparse_matrix
-
+from io_ import get_dataset_dir, get_data_fp, store_sparse_matrix, make_dir, load_sparse_matrix, get_collection_dir, \
+    store_dense_matrix, load_dense_matrix
 from io_ import log
 
 
@@ -126,21 +128,6 @@ class RCV1Collection:
         """
 
         return self._data.nnz
-
-    # DIMENSIONALITY REDUCTION
-
-    def embed(self, eps: float) -> np.ndarray:
-        """
-        Embed sparse tf-idf matrix into a dense vector space using Johnson-Lindenstrauss lemma.
-
-        :param eps: maximum distortion rate in the range (0, 1).
-        :return: vector projected in lower dimensional space.
-        """
-
-        n_components = johnson_lindenstrauss_min_dim(n_samples=self._data.shape[0], eps=eps)
-        transformer = SparseRandomProjection(n_components=n_components)
-        reduced = transformer.fit_transform(self._data).toarray()
-        return reduced
 
 
 class RCV1Downloader:

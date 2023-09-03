@@ -229,7 +229,7 @@ class DocIdReassignmentComputation:
         _data_name (str): A name used to refer to a specific configuration of the dataset.
         _collection_clusters (RCV1Clusters): An instance of RCV1Clusters representing
                                              the clustering of the document collection.
-        _medoids_order (np.ndarray): An array containing the order of medoids based on the TSP solution.
+        _centroids_order (np.ndarray): An array containing the order of centroids based on the TSP solution.
         _clusters_order (Dict[int, np.ndarray]): A dictionary where keys are cluster labels, and values are arrays
                                                  containing the order of documents within each cluster
                                                  based on the TSP solution.
@@ -249,12 +249,12 @@ class DocIdReassignmentComputation:
         # Input attributes
         self._data_name: str = data_name
 
-        # Create cluster and compute medoids
+        # Create cluster and compute centroids
         self._collection_clusters: RCV1Clusters = cluster
-        self._collection_clusters.compute_medoids()
+        self._collection_clusters.compute_centroids()
 
         # Order solution
-        self._medoids_order: np.ndarray = np.array([])
+        self._centroids_order: np.ndarray = np.array([])
         self._clusters_order: Dict[int, np.ndarray] = dict()
         self._order_computed: bool = False
 
@@ -289,7 +289,7 @@ class DocIdReassignmentComputation:
 
         if self.order_computed:
             log(info="Reassignment order was already computed. "
-                     "Use `medoids_order` and `cluster_order` to retrieve them. ")
+                     "Use `centroids_order` and `cluster_order` to retrieve them. ")
             return
 
         if try_load:
@@ -300,41 +300,41 @@ class DocIdReassignmentComputation:
             else:
                 log(info=f"Information not present at {self._order_fp}. ")
 
-        # 1. TSP over medoids
-        log(info="Solving TSP over medoids ")
-        medoids = self._collection_clusters.medoids
-        tsp = TravellingSalesmanProblem(data=medoids)
+        # 1. TSP over centroids
+        log(info="Solving TSP over centroids ")
+        centroids = self._collection_clusters.centroids
+        tsp = TravellingSalesmanProblem(data=centroids)
         tsp.solve_tsp()
-        self._medoids_order = tsp.order
+        self._centroids_order = tsp.order
 
         # 2. Solving cluster internal order
         log(info="Solving cluster internal order")
         clusters = self._collection_clusters.clusters
 
         self._clusters_order = {
-            label: self._medoid_order_distance(label=label)
+            label: self._centroid_order_distance(label=label)
             for label, mat in tqdm(clusters.items())
         }
 
         # Enable computed flag
         self._order_computed = True
 
-    def _medoid_order_distance(self, label: int):
+    def _centroid_order_distance(self, label: int):
         """
-        Compute the order of documents within a cluster based on their distance to the cluster medoid.
+        Compute the order of documents within a cluster based on their distance to the cluster centroid.
 
         :param label: cluster label for which the document order is computed.
-        :return: array containing the order of documents within the cluster based on their distance to the medoid.
+        :return: array containing the order of documents within the cluster based on their distance to the centroid.
         """
 
-        # Get medoids and cluster
+        # Get centroids and cluster
         cluster = self._collection_clusters[label]
-        medoid = self._collection_clusters.medoids[label]
+        centroid = self._collection_clusters.centroids[label]
 
         # Compute euclidean distances
-        distances = np.array([distance.euclidean(point, medoid) for point in cluster])
+        distances = np.array([distance.euclidean(point, centroid) for point in cluster])
 
-        # Sorting by distance to the medoid
+        # Sorting by distance to the centroid
         order = np.argsort(distances)
 
         return order
@@ -350,17 +350,17 @@ class DocIdReassignmentComputation:
         return self._order_computed
 
     @property
-    def medoids_order(self) -> np.ndarray:
+    def centroids_order(self) -> np.ndarray:
         """
-        Get the order of medoids based on the TSP solution.
+        Get the order of centroids based on the TSP solution.
 
-        :return: NumPy array containing the order of medoids.
+        :return: NumPy array containing the order of centroids.
         """
 
         if not self.order_computed:
             raise Exception("Reassignment order was not computed yet. Use `solve` to compute")
 
-        return self._medoids_order
+        return self._centroids_order
 
     @property
     def cluster_order(self) -> Dict[int, np.ndarray]:
@@ -407,19 +407,19 @@ class DocIdReassignmentComputation:
         Save reassignment order to disk as a JSON file.
         """
 
-        log(info=f"Saving medoids and cluster order to {self._order_fp} ")
+        log(info=f"Saving centroids and cluster order to {self._order_fp} ")
 
         # Directory creation
         sample_dir = get_collection_dir(collection_name=self._data_name)
         make_dir(path_=sample_dir)
 
         # Conversion for JSON serialization
-        medoids_sol = [int(i) for i in self.medoids_order]
+        centroids_sol = [int(i) for i in self.centroids_order]
         clusters_sol = {int(k): [int(i) for i in v] for k, v in self.cluster_order.items()}
 
         # Save
         solutions = {
-            "medoids_sol": medoids_sol,
+            "centroids_sol": centroids_sol,
             "clusters_sol": clusters_sol
         }
 
@@ -427,17 +427,40 @@ class DocIdReassignmentComputation:
 
     def _load_order(self):
         """
-        Load medoids from a previously saved JSON file on disk.
+        Load centroids from a previously saved JSON file on disk.
         """
 
         loaded = load_json(path_=self._order_fp)
 
         # NumPy array conversion
-        self._medoids_order = np.array(loaded["medoids_sol"])
+        self._centroids_order = np.array(loaded["centroids_sol"])
         self._clusters_order = {int(k): np.array(v) for k, v in loaded["clusters_sol"].items()}
 
         # Enable computed flag
         self._order_computed = True
+
+    def reassign_doc_id(self) -> RCV1Collection:
+        """
+        Reassign document IDs based on the computed ordering.
+
+        :return: new instance of RCV1Collection with reordered document IDs.
+        """
+
+        # Extract number of clusters
+        n_cluster = self._collection_clusters.n_cluster
+
+        # Sort clusters internally
+        clusters_reordered = [
+            self._collection_clusters[i][self._clusters_order[i]]
+            for i in range(n_cluster)
+        ]
+
+        # Sort clusters by centroids
+        centroids_reordered = [clusters_reordered[i] for i in self._centroids_order]
+
+        # Stack clusters in a single matrix
+        data_reordered = vstack(centroids_reordered)
+        return RCV1Collection(data=data_reordered)
 
 
 class DocIdReassignment:
@@ -447,8 +470,8 @@ class DocIdReassignment:
     Attributes:
         _collection_cluster (RCV1Clusters): An instance of RCV1Clusters representing
                                             the clustered collection of documents.
-        _medoids_order (np.ndarray): An ordered array of cluster indices representing the order
-                                     in which medoids should be visited.
+        _centroids_order (np.ndarray): An ordered array of cluster indices representing the order
+                                     in which centroids should be visited.
         _clusters_order (Dict[int, np.ndarray]): A dictionary where keys are cluster indices and values are
                                                  ordered arrays representing the order in which documents within
                                                  each cluster should be visited.
@@ -457,20 +480,20 @@ class DocIdReassignment:
     # CONSTRUCTOR
 
     def __init__(self, collection: RCV1Collection, labeling: np.ndarray,
-                 medoids_order: np.ndarray, clusters_order: Dict[int, np.ndarray], data_name: str):
+                 centroids_order: np.ndarray, clusters_order: Dict[int, np.ndarray], data_name: str):
         """
         Initialize an instance of DocIdReassignment.
 
         :param collection: instance of RCV1Collection representing the collection of documents.
         :param labeling: array representing the cluster labels assigned to each document.
-        :param medoids_order: ordered array of cluster indices representing the order in which medoids should be visited.
+        :param centroids_order: ordered array of cluster indices representing the order in which centroids should be visited.
         :param clusters_order: dictionary where keys are cluster indices and values are ordered arrays
             representing the order in which documents within each cluster should be visited.
         :param data_name: name used to refer to a specific configuration of the dataset.
         """
 
         self._collection_cluster = RCV1Clusters(data=collection.data, labeling=labeling, data_name=data_name)
-        self._medoids_order: np.ndarray = medoids_order
+        self._centroids_order: np.ndarray = centroids_order
         self._clusters_order: Dict[int, np.ndarray] = clusters_order
 
     # REPRESENTATION
@@ -495,25 +518,4 @@ class DocIdReassignment:
 
     # REASSIGNMENT
 
-    def reassign_doc_id(self) -> RCV1Collection:
-        """
-        Reassign document IDs based on the computed ordering.
 
-        :return: new instance of RCV1Collection with reordered document IDs.
-        """
-
-        # Extract number of clusters
-        n_cluster = self._collection_cluster.n_cluster
-
-        # Sort clusters internally
-        clusters_reordered = [
-            self._collection_cluster[i][self._clusters_order[i]]
-            for i in range(n_cluster)
-        ]
-
-        # Sort clusters by medoids
-        medoids_reordered = [clusters_reordered[i] for i in self._medoids_order]
-
-        # Stack clusters in a single matrix
-        data_reordered = vstack(medoids_reordered)
-        return RCV1Collection(data=data_reordered)

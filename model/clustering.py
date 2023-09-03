@@ -6,7 +6,7 @@ This module provides classes for performing clustering analysis on data.
 
 Classes:
 
-    - RCV1Clusters: Class is designed to organize data into clusters and compute medoids for each cluster.
+    - RCV1Clusters: Class is designed to organize data into clusters and compute centroids for each cluster.
     - ClusteringModel: Abstract class represents a generic clustering model for grouping data points into clusters.
     - KMeansClustering: Class extends this functionality by implementing the k-Means clustering algorithm to
                         automatically find the optimal number of clusters and assign labels to data points.
@@ -20,10 +20,11 @@ from typing import Dict
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.spatial.distance import pdist, squareform
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, MiniBatchKMeans
 from tqdm import tqdm
 
 from io_ import log, store_json, get_collection_dir, make_dir, load_json, store_dense_matrix, load_dense_matrix
+from model.rcv1 import RCV1Collection
 
 
 class RCV1Clusters:
@@ -33,16 +34,16 @@ class RCV1Clusters:
     Attributes:
         _data_name (str): A name used to refer to a specific configuration of the dataset.
         _clusters (Dict[int, np.ndarray]): A dictionary mapping cluster labels to their corresponding data points.
-        _medoids (np.ndarray): An array containing the medoid data point for each cluster.
-        _medoids_computed (bool): A flag indicating whether medoids have been computed.
+        _centroids (np.ndarray): An array containing the centroid data point for each cluster.
+        _centroids_computed (bool): A flag indicating whether centroids have been computed.
     """
 
     # CONSTRUCTOR
 
-    def __init__(self, data: np.ndarray | csr_matrix, labeling: np.ndarray, data_name: str):
+    def __init__(self, data: csr_matrix, labeling: np.ndarray, data_name: str):
         """
         Initialize an instance of RCV1Clusters.
-        It provides some functionalities to compute cluster medoids.
+        It provides some functionalities to compute cluster centroids.
 
         :param data: feature matrix.
         :labeling: clustering labels.
@@ -63,9 +64,9 @@ class RCV1Clusters:
             for label, indices in cluster_indices.items()
         }
 
-        # Medoids computation
-        self._medoids = np.array([])
-        self._medoids_computed: bool = False
+        # centroids computation
+        self._centroids = np.array([])
+        self._centroids_computed: bool = False
 
     # REPRESENTATION
 
@@ -77,7 +78,7 @@ class RCV1Clusters:
         """
 
         return f"RCV1Clusters({self._data_name})[Data: {len(self)}, Clusters: {self.n_cluster}, " \
-               f"Mean-per-Cluster: {self.mean_cardinality:.3f}; Medoids computed: {self.medoids_computed}]"
+               f"Mean-per-Cluster: {self.mean_cardinality:.3f}; centroids computed: {self.centroids_computed}]"
 
     def __repr__(self) -> str:
         """
@@ -150,136 +151,125 @@ class RCV1Clusters:
 
         return mean(self.clusters_cardinalities.values())
 
-    # MEDOIDS
+    # centroidS
 
-    def compute_medoids(self, try_load: bool = True):
+    def compute_centroids(self, try_load: bool = True):
         """
-        Compute the medoids for each cluster.
+        Compute the centroids for each cluster.
 
-        :param try_load: whether to attempt loading precomputed medoids from disk.
+        :param try_load: whether to attempt loading precomputed centroids from disk.
         """
 
         # Check if stats were already computed
-        if self.medoids_computed:
-            log(info="Medoids already computed. Use `medoids` to retrieve them. ")
+        if self.centroids_computed:
+            log(info="centroids already computed. Use `centroids` to retrieve them. ")
             return
 
         # Try to load precomputed d_gaps if flag is enabled
         if try_load:
-            if self._medoid_precomputed:
-                log(info=f"Retrieving medoids from disk at {self._medoid_fp}. ")
-                self._load_medoids()
+            if self._centroid_precomputed:
+                log(info=f"Retrieving centroids from disk at {self._centroid_fp}. ")
+                self._load_centroids()
                 return
             else:
-                log(info=f"Information not present at {self._medoid_fp}. ")
+                log(info=f"Information not present at {self._centroid_fp}. ")
 
-        # Computing medoids
-        log(info="Computing medoids. ")
+        # Computing centroids
+        log(info="Computing centroids. ")
 
         # Using private helper function
-        self._medoids = np.stack([
-            self._get_medoid(cluster_idx=i) for i in tqdm(self.clusters.keys())
+        self._centroids = np.stack([
+            self._get_centroid(cluster_idx=i) for i in tqdm(self.clusters.keys())
         ])
 
         # Enable computed flag
-        self._medoids_computed = True
+        self._centroids_computed = True
 
     @property
-    def medoids(self) -> np.ndarray:
+    def centroids(self) -> np.ndarray:
         """
-        Return medoid for each cluster.
+        Return centroid for each cluster.
 
-        :return: array containing the medoid data point for each cluster.
-        """
-
-        # Raise an exception if medoids were not computed
-        if not self.medoids_computed:
-            raise Exception("Medoids were not computed yet. Use `compute_medoids()` first. ")
-
-        return self._medoids
-
-    def _get_medoid(self, cluster_idx: int) -> np.ndarray:
-        """
-        Returns the medoid of a given set of data points representing a cluster.
-
-        :param cluster_idx: index of the cluster for which to compute the medoid.
-        :return: medoid data point of the specified cluster.
+        :return: array containing the centroid data point for each cluster.
         """
 
+        # Raise an exception if centroids were not computed
+        if not self.centroids_computed:
+            raise Exception("centroids were not computed yet. Use `compute_centroids()` first. ")
+
+        return self._centroids
+
+    def _get_centroid(self, cluster_idx: int) -> np.ndarray:
         """
-        # Extract cluster array
-        arr = self[cluster_idx]
+        Returns the centroid of a given set of data points representing a cluster.
 
-        # Compute pairwise distances
-        pairwise_distances = pdist(arr)
-        distance_matrix = squareform(pairwise_distances)
-
-        # Calculate the sum of distances for each data point
-        sum_distances = np.sum(distance_matrix, axis=0)
-
-        # Find the index of the data point with the minimum sum of distances
-        medoid_index = np.argmin(sum_distances)
+        :param cluster_idx: index of the cluster for which to compute the centroid.
+        :return: centroid data point of the specified cluster.
         """
 
-        arr = self[cluster_idx]
+        cluster = self[cluster_idx]
 
-        return np.mean(arr, axis=0)
+        centroid = np.mean(cluster, axis=0)
+
+        centroid_np = np.array(centroid)
+
+        return centroid_np
 
     @property
-    def medoids_computed(self) -> bool:
+    def centroids_computed(self) -> bool:
         """
-        Check if medoids have been computed.
+        Check if centroids have been computed.
 
-        :return: `True` if medoids have been computed, `False` otherwise.
+        :return: `True` if centroids have been computed, `False` otherwise.
         """
 
-        return self._medoids_computed
+        return self._centroids_computed
 
     # SAVE / LOAD
 
     @property
-    def _medoid_fp(self) -> str:
+    def _centroid_fp(self) -> str:
         """
-        Get the file path for storing medoids.
+        Get the file path for storing centroids.
 
-        This property returns the file path where the computed medoids will be saved or loaded from.
+        This property returns the file path where the computed centroids will be saved or loaded from.
         The path is based on the dataset name.
 
-        :return: file path for storing medoids.
+        :return: file path for storing centroids.
         """
 
         sample_dir = get_collection_dir(collection_name=self._data_name)
-        return path.join(sample_dir, "medoids.npy")
+        return path.join(sample_dir, "centroids.npy")
 
     @property
-    def _medoid_precomputed(self) -> bool:
+    def _centroid_precomputed(self) -> bool:
         """
-        Check if medoids are precomputed on disk.
+        Check if centroids are precomputed on disk.
 
-        :return: `True` if medoids are precomputed on disk, `False` otherwise.
-        """
-
-        return path.exists(self._medoid_fp)
-
-    def save_medoids(self):
-        """
-        Save medoids to disk as a NPY file.
+        :return: `True` if centroids are precomputed on disk, `False` otherwise.
         """
 
-        log(info=f"Saving medoids to {self._medoid_fp}. ")
+        return path.exists(self._centroid_fp)
+
+    def save_centroids(self):
+        """
+        Save centroids to disk as a NPY file.
+        """
+
+        log(info=f"Saving centroids to {self._centroid_fp}. ")
 
         sample_dir = get_collection_dir(collection_name=self._data_name)
         make_dir(path_=sample_dir)
 
-        store_dense_matrix(path_=self._medoid_fp, mat=self._medoids)
+        store_dense_matrix(path_=self._centroid_fp, mat=self._centroids)
 
-    def _load_medoids(self):
+    def _load_centroids(self):
         """
-        Load medoids from a previously saved NPY file on disk.
+        Load centroids from a previously saved NPY file on disk.
         """
 
-        self._medoids = load_dense_matrix(path_=self._medoid_fp)
-        self._medoids_computed = True
+        self._centroids = load_dense_matrix(path_=self._centroid_fp)
+        self._centroids_computed = True
 
 
 class ClusteringModel(ABC):
@@ -287,7 +277,7 @@ class ClusteringModel(ABC):
     This abstract class defines the common interface for clustering models used in RCV1 dataset analysis.
 
     Attributes:
-        _mat (numpy.ndarray): The feature matrix containing data to be clustered.
+        _data (numpy.ndarray): The feature matrix containing data to be clustered.
         _data_name (str): A name used to refer to a specific configuration of the dataset.
         _labeling (numpy.ndarray): An array storing cluster labels for each data point.
         _labeling_computed (bool): A flag indicating whether cluster labels have been computed.
@@ -295,7 +285,7 @@ class ClusteringModel(ABC):
 
     # CONSTRUCTOR
 
-    def __init__(self, mat: np.ndarray, data_name: str):
+    def __init__(self, collection: RCV1Collection, data_name: str):
         """
         Initializes an instance of the ClusteringModel.
 
@@ -306,7 +296,7 @@ class ClusteringModel(ABC):
         """
 
         # Input attributed
-        self._mat: np.ndarray = mat
+        self._data: csr_matrix = collection.data
         self._data_name: str = data_name
 
         # Labels computation
@@ -340,7 +330,7 @@ class ClusteringModel(ABC):
         :return: items within the collection.
         """
 
-        rows, _ = self._mat.shape
+        rows, _ = self._data.shape
 
         return rows
 
@@ -419,7 +409,7 @@ class ClusteringModel(ABC):
     """
 
         return RCV1Clusters(
-            data=self._mat,
+            data=self._data,
             labeling=self.labeling,
             data_name=self._data_name
         )
@@ -476,7 +466,7 @@ class KMeansClustering(ClusteringModel):
     It uses the k-Means algorithm to partition the data into k clusters.
 
     Attributes:
-        _mat (numpy.ndarray): The feature matrix containing data to be clustered.
+        _data (numpy.ndarray): The feature matrix containing data to be clustered.
         _data_name (str): A name used to refer to a specific configuration of the dataset.
         _labeling (numpy.ndarray): An array storing cluster labels for each data point.
         _labeling_computed (bool): A flag indicating whether cluster labels have been computed.
@@ -485,18 +475,18 @@ class KMeansClustering(ClusteringModel):
 
     # CONSTRUCTOR
 
-    def __init__(self, mat: np.ndarray, data_name: str, k: int):
+    def __init__(self, collection: RCV1Collection, data_name: str, k: int):
         """
         Initializes an instance of the ClusteringModel.
 
-        :param mat:  feature matrix containing data to be clustered.
+        :param collection:  feature matrix containing data to be clustered.
         :param data_name: name used to refer to a specific configuration of the dataset.
                           If results were previously computed and saved,
                            they are loaded from disk instead of recomputed to save computation.
         :param k: number of clusters to find.
         """
 
-        super().__init__(mat=mat, data_name=data_name)
+        super().__init__(collection=collection, data_name=data_name)
 
         self._k: int = k
 
@@ -519,11 +509,11 @@ class KMeansClustering(ClusteringModel):
         Fit the k-Means clustering model to the data and compute clustering labels.
         """
 
-        kmeans: KMeans = KMeans(n_clusters=self._k, n_init='auto')
-        kmeans.fit_predict(X=self._mat)
+        minibatch_kmeans: MiniBatchKMeans = MiniBatchKMeans(n_clusters=self._k, n_init='auto')
+        minibatch_kmeans.fit(self._data)
 
         # Compute average
-        self._labeling = kmeans.labels_
+        self._labeling = minibatch_kmeans.labels_
 
         # Enable computed flag
         self._labeling_computed = True

@@ -15,7 +15,7 @@ class DataConfig:
         name (str): Name of the dataset configuration.
         docs (int): Number of documents to consider. -1 for all documents.
         terms (int): Number of terms to consider. -1 for all terms.
-        eps (float): Approximation error for random projection embedding.
+        n_components (int): Number of components for dimensionality reduction.
         n_cluster (int): Number of clusters to create when evaluating a clustering model.
     """
 
@@ -23,7 +23,7 @@ class DataConfig:
     name: str
     docs: int
     terms: int
-    eps: float
+    n_components: int
     n_cluster: int
 
     def __str__(self) -> str:
@@ -36,7 +36,7 @@ class DataConfig:
         docs = self.docs if self.docs != -1 else "all"
         terms = self.terms if self.terms != -1 else "all"
 
-        return f"{self.name} [Docs: {docs}; Terms: {terms}; Approximation error: {self.eps}; N Clusters: {self.n_cluster}]"
+        return f"{self.name} [Docs: {docs}; Terms: {terms}; N-components: {self.n_components}; N-Clusters: {self.n_cluster}]"
 
     def __repr__(self) -> str:
         """
@@ -81,10 +81,10 @@ class Solver:
         kmeans.save_labeling()
         labeling = kmeans.labeling
 
-        print("Computing medoids... ")
+        print("Computing centroids... ")
         collection_clusters = kmeans.clusters
-        collection_clusters.compute_medoids()
-        collection_clusters.save_medoids()
+        collection_clusters.compute_centroids()
+        collection_clusters.save_centroids()
 
         print("Computing TSP... ")
         reassignment_computation = DocIdReassignmentComputation(
@@ -98,7 +98,7 @@ class Solver:
         docs_reassignment = DocIdReassignment(
             collection=collection,
             labeling=labeling,
-            medoids_order=reassignment_computation.medoids_order,
+            centroids_order=reassignment_computation.centroids_order,
             clusters_order=reassignment_computation.cluster_order,
             data_name=self._config.name
         )
