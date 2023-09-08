@@ -212,7 +212,7 @@ class DGapComputation:
         averages = np.mean(binned_data, axis=1)
 
         # X values
-        x_vals = np.array(range(num_bins))
+        x_vals = np.array(range(num_bins)) * points_per_bin
 
         # Plot averages
         plt.plot(x_vals, averages)
@@ -383,7 +383,7 @@ class DGapInference:
     # INFERENCE
 
     @property
-    def compression_pterm(self):
+    def avg_compression_pterm(self):
         """
         Calculate the compression percentage for each term based on d-gap improvement.
 
@@ -396,7 +396,7 @@ class DGapInference:
         # Compute d-gap improvement for each term in percentage
         improvement = (gaps_original - gaps_reassigned + 0.001) / gaps_original * 100
 
-        improvement[improvement < 0] = 0
+        #improvement[improvement < 0] = 0
 
         return improvement
 
@@ -408,7 +408,7 @@ class DGapInference:
         :return: average compression percentage.
         """
 
-        return np.mean(self.compression_pterm)
+        return np.mean(self.avg_compression_pterm)
 
     def plot_avg_d_gap(self):
         """
@@ -431,7 +431,7 @@ class DGapInference:
             averages = np.mean(binned_data, axis=1)
 
             # X values
-            x_vals = np.array(range(num_bins))
+            x_vals = np.array(range(num_bins)) * points_per_bin
 
             # Plot averages
             plt.plot(x_vals, averages, label=label)

@@ -12,18 +12,14 @@ Classes:
 Each class offers specific functionality for handling different aspects of the RCV1 dataset,
  from representing data to downloading and preprocessing it.
 """
-
-
+from dataclasses import dataclass
 from os import path
 
 import numpy as np
 from scipy.sparse import csr_matrix
 from sklearn.datasets import fetch_rcv1
-from sklearn.decomposition import TruncatedSVD
-from sklearn.preprocessing import normalize
 
-from io_ import get_dataset_dir, get_data_fp, store_sparse_matrix, make_dir, load_sparse_matrix, get_collection_dir, \
-    store_dense_matrix, load_dense_matrix
+from io_ import get_dataset_dir, get_data_fp, store_sparse_matrix, make_dir, load_sparse_matrix
 from io_ import log
 
 
@@ -287,3 +283,42 @@ class RCV1Loader:
             data = data[:, sorted_cols_indices]
 
         return RCV1Collection(data=data)
+
+
+@dataclass
+class DataConfig:
+    """
+    A class for storing data configuration settings.
+
+    Attributes:
+        name (str): Name of the dataset configuration.
+        docs (int): Number of documents to consider. -1 for all documents.
+        terms (int): Number of terms to consider. -1 for all terms.
+        n_cluster (int): Number of clusters to create when evaluating a clustering model.
+    """
+
+    # Attributes definition
+    name: str = "sample"
+    docs: int = -1
+    terms: int = -1
+    n_cluster: int = 100
+
+    def __str__(self) -> str:
+        """
+        Return a human-readable string representation of the DataConfig object.
+
+        :return: string representation for the object.
+        """
+
+        docs = self.docs if self.docs != -1 else "all"
+        terms = self.terms if self.terms != -1 else "all"
+
+        return f"{self.name} [Docs: {docs}; Terms: {terms}; N-Clusters: {self.n_cluster}]"
+
+    def __repr__(self) -> str:
+        """
+        Return the string representation of the DataConfig object.
+
+        :return: string representation of the object.
+        """
+        return str(self)

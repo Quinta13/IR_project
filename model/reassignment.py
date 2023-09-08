@@ -16,8 +16,9 @@ from typing import Dict
 import numpy as np
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver.pywrapcp import RoutingIndexManager, RoutingModel, DefaultRoutingSearchParameters
-from scipy.sparse import vstack
+from scipy.sparse import vstack, csr_matrix
 from scipy.spatial import distance
+from sklearn.metrics import pairwise_distances
 from tqdm import tqdm
 
 from io_ import get_collection_dir, log, make_dir, store_json, load_json
@@ -221,7 +222,7 @@ class TravellingSalesmanProblem:
         return self._data[self.solve_tsp]
 
 
-class DocIdReassignmentComputation:
+class DocIdReassignment:
     """
     This class represents the process of reordering document IDs based on clustering and TSP.
 
@@ -240,7 +241,7 @@ class DocIdReassignmentComputation:
 
     def __init__(self, cluster: RCV1Clusters, data_name: str):
         """
-        Initialize an instance of DocIdReassignmentComputation.
+        Initialize an instance of DocIdReassignment.
 
         :param cluster: clustered RCV1Clusters.
         :param data_name: name used to refer to a specific configuration of the dataset.
@@ -262,16 +263,16 @@ class DocIdReassignmentComputation:
 
     def __str__(self) -> str:
         """
-        Return human-readable string representation for DocIdReassignmentComputation object.
+        Return human-readable string representation for DocIdReassignment object.
 
         :return: string representation for the object.
         """
 
-        return f"DocIdReassignmentComputation({self._data_name})[]"
+        return f"DocIdReassignment({self._data_name})[Items: {len(self._collection_clusters)}]"
 
     def __repr__(self) -> str:
         """
-        Return string representation for DocIdReassignmentComputation object.
+        Return string representation for DocIdReassignment object.
 
         :return: string representation for the object.
         """
@@ -313,7 +314,7 @@ class DocIdReassignmentComputation:
 
         self._clusters_order = {
             label: self._centroid_order_distance(label=label)
-            for label, mat in tqdm(clusters.items())
+            for label in tqdm(clusters.keys())
         }
 
         # Enable computed flag
@@ -329,10 +330,10 @@ class DocIdReassignmentComputation:
 
         # Get centroids and cluster
         cluster = self._collection_clusters[label]
-        centroid = self._collection_clusters.centroids[label]
+        centroid = csr_matrix(self._collection_clusters.centroids[label])
 
         # Compute euclidean distances
-        distances = np.array([distance.euclidean(point, centroid) for point in cluster])
+        distances = pairwise_distances(centroid, cluster)[0]
 
         # Sorting by distance to the centroid
         order = np.argsort(distances)
@@ -461,61 +462,3 @@ class DocIdReassignmentComputation:
         # Stack clusters in a single matrix
         data_reordered = vstack(centroids_reordered)
         return RCV1Collection(data=data_reordered)
-
-
-class DocIdReassignment:
-    """
-    This class represents the reassignment of document IDs based on clustering and ordering.
-
-    Attributes:
-        _collection_cluster (RCV1Clusters): An instance of RCV1Clusters representing
-                                            the clustered collection of documents.
-        _centroids_order (np.ndarray): An ordered array of cluster indices representing the order
-                                     in which centroids should be visited.
-        _clusters_order (Dict[int, np.ndarray]): A dictionary where keys are cluster indices and values are
-                                                 ordered arrays representing the order in which documents within
-                                                 each cluster should be visited.
-    """
-
-    # CONSTRUCTOR
-
-    def __init__(self, collection: RCV1Collection, labeling: np.ndarray,
-                 centroids_order: np.ndarray, clusters_order: Dict[int, np.ndarray], data_name: str):
-        """
-        Initialize an instance of DocIdReassignment.
-
-        :param collection: instance of RCV1Collection representing the collection of documents.
-        :param labeling: array representing the cluster labels assigned to each document.
-        :param centroids_order: ordered array of cluster indices representing the order in which centroids should be visited.
-        :param clusters_order: dictionary where keys are cluster indices and values are ordered arrays
-            representing the order in which documents within each cluster should be visited.
-        :param data_name: name used to refer to a specific configuration of the dataset.
-        """
-
-        self._collection_cluster = RCV1Clusters(data=collection.data, labeling=labeling, data_name=data_name)
-        self._centroids_order: np.ndarray = centroids_order
-        self._clusters_order: Dict[int, np.ndarray] = clusters_order
-
-    # REPRESENTATION
-
-    def __str__(self) -> str:
-        """
-        Return human-readable string representation for DocIdReassignment object.
-
-        :return: string representation for the object.
-        """
-
-        return f"DocIdReassignment[Items: {len(self._collection_cluster)}]"
-
-    def __repr__(self) -> str:
-        """
-        Return string representation for DocIdReassignment object.
-
-        :return: string representation for the object.
-        """
-
-        return str(self)
-
-    # REASSIGNMENT
-
-

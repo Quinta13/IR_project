@@ -211,7 +211,7 @@ class RCV1Clusters:
 
         centroid = np.mean(cluster, axis=0)
 
-        centroid_np = np.array(centroid)
+        centroid_np = np.array(centroid)[0]
 
         return centroid_np
 
