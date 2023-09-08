@@ -2,7 +2,7 @@ from os import path
 
 from matplotlib import pyplot as plt
 
-from io_ import store_json, get_dataset_dir
+from io_ import store_json, get_dataset_dir, load_json
 from model.clustering import KMeansClustering
 from model.d_gap import DGapComputation, DGapComputationReassigned, DGapInference
 from model.rcv1 import DataConfig, RCV1Loader
@@ -50,6 +50,8 @@ def perform_reassignment(config: DataConfig, loader: RCV1Loader):
 
 if __name__ == "__main__":
 
+    # Compression computation
+
     compression_dir = dict()
 
     ks = [i * 10 for i in range(10, 31)]
@@ -73,14 +75,17 @@ if __name__ == "__main__":
 
     # Plot
 
+    compression_dir = load_json(out_fp)
+
     x = [int(key) for key in compression_dir.keys()]
     y = list(compression_dir.values())
 
-    plt.scatter(x, y)
+    plt.plot(x, y, marker='o', linestyle='-', markersize=4, label='Data Points')
+    plt.xticks([x[i] for i in range(0, len(x), 2)])
 
+    plt.title("Postings compression")
     plt.xlabel('Number of clusters')
     plt.ylabel('Compression')
 
     img_fp = path.join(get_dataset_dir(), "compression.png")
     plt.savefig(img_fp)
-
