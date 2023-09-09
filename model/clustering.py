@@ -99,7 +99,7 @@ class RCV1Clusters:
 
         return sum(self.clusters_cardinalities.values())
 
-    def __getitem__(self, cluster_idx: int) -> np.ndarray:
+    def __getitem__(self, cluster_idx: int) -> csr_matrix:
         """
         Return data split by cluster.
 
@@ -443,6 +443,10 @@ class ClusteringModel(ABC):
         """
         Save labeling to disk as a JSON file.
         """
+
+        # Creating directory
+        sample_dir = get_collection_dir(collection_name=self._data_name)
+        make_dir(path_=sample_dir)
 
         log(info=f"Saving labeling to {self._labeling_fp}. ")
 

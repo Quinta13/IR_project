@@ -17,13 +17,13 @@ import numpy as np
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver.pywrapcp import RoutingIndexManager, RoutingModel, DefaultRoutingSearchParameters
 from scipy.sparse import vstack, csr_matrix
-from scipy.spatial import distance
 from sklearn.metrics import pairwise_distances
 from tqdm import tqdm
 
-from io_ import get_collection_dir, log, make_dir, store_json, load_json
-from model.clustering import RCV1Clusters
-from model.rcv1 import RCV1Collection
+from io_ import get_collection_dir, log, make_dir, store_json, load_json, SAVE
+from model.clustering import RCV1Clusters, KMeansClustering
+from model.d_gap import DGapComputation, DGapComputationReassigned, DGapInference
+from model.rcv1 import RCV1Collection, RCV1Loader, DataConfig
 
 
 class TravellingSalesmanProblem:
@@ -329,8 +329,11 @@ class DocIdReassignment:
         """
 
         # Get centroids and cluster
+
+        label_idx = list(self._collection_clusters.clusters.keys()).index(label)
+
         cluster = self._collection_clusters[label]
-        centroid = csr_matrix(self._collection_clusters.centroids[label])
+        centroid = csr_matrix(self._collection_clusters.centroids[label_idx])
 
         # Compute euclidean distances
         distances = pairwise_distances(centroid, cluster)[0]
@@ -452,8 +455,8 @@ class DocIdReassignment:
 
         # Sort clusters internally
         clusters_reordered = [
-            self._collection_clusters[i][self._clusters_order[i]]
-            for i in range(n_cluster)
+            self._collection_clusters[label][self._clusters_order[label]]
+            for label, idx in zip(self._collection_clusters.clusters.keys(), range(n_cluster))
         ]
 
         # Sort clusters by centroids
@@ -462,3 +465,167 @@ class DocIdReassignment:
         # Stack clusters in a single matrix
         data_reordered = vstack(centroids_reordered)
         return RCV1Collection(data=data_reordered)
+
+
+class OneStepReassignment:
+    """
+    Performs all operation for Doc-Id reassignment with one-step clustering
+    """
+
+    def __init__(self):
+
+        self._dataloader = RCV1Loader()
+
+        self._compression: float = 0.
+        self._compression_computed: bool = False
+
+    @staticmethod
+    def _permutation_reassignment(collection: RCV1Collection, config: DataConfig) -> RCV1Collection:
+
+        log(info="  -  Evaluating clustering...")
+        kmeans = KMeansClustering(collection=collection, data_name=config.name, k=config.n_cluster)
+        kmeans.fit()
+        if SAVE:
+            kmeans.save_labeling()
+
+        log(info="  -  Computing centroids...")
+        collection_clusters = kmeans.clusters
+        collection_clusters.compute_centroids()
+        if SAVE:
+            collection_clusters.save_centroids()
+
+        log(info="  -  Reassign doc-id...")
+        reassignment_computation = DocIdReassignment(
+            cluster=collection_clusters,
+            data_name=config.name
+        )
+        reassignment_computation.solve()
+        if SAVE:
+            reassignment_computation.save_order()
+
+        return reassignment_computation.reassign_doc_id()
+
+    def compute_compression(self, config: DataConfig):
+
+        if self._compression_computed:
+            log(info="Compression computed yet. Use `compression` to retrieve it")
+            return
+
+        collection = self._dataloader.load()
+
+        log(info="  -  Computing d-gap...")
+        dgap = DGapComputation(collection=collection, data_name=config.name)
+        dgap.compute_d_gaps()
+        if SAVE:
+            dgap.save_d_gaps()
+
+        # Performing reassignment
+        collection_reassigned = self._permutation_reassignment(collection=collection, config=config)
+
+        log(info="  -  Computing d-gap after reassignment...")
+        dgap_reass = DGapComputationReassigned(collection=collection_reassigned, data_name=config.name)
+        dgap_reass.compute_d_gaps()
+        if SAVE:
+            dgap_reass.save_d_gaps()
+
+        log(info="  -  Performing inference...")
+        inference = DGapInference(d_gap_original=dgap, d_gap_reassigned=dgap_reass, data_name=config.name)
+        inference.plot_avg_d_gap()
+
+        self._compression = inference.avg_compression
+        self._compression_computed = True
+
+    @property
+    def compression(self) -> float:
+
+        if not self._compression_computed:
+            raise Exception("Compression not computed yet. Use `compute_compression`.")
+
+        return self._compression
+
+
+class TwoStepReassignment(OneStepReassignment):
+    """
+    Performs all operation for Doc-Id reassignment with one-step clustering
+    """
+
+    def __init__(self):
+
+        super().__init__()
+
+    def compute_compression(self, config: DataConfig):
+
+        if self._compression_computed:
+            log(info="Compression computed yet. Use `compression` to retrieve it")
+            return
+
+        collection = self._dataloader.load()
+
+        log(info="  -  Computing d-gap...")
+        dgap = DGapComputation(collection=collection, data_name=config.name)
+        dgap.compute_d_gaps()
+        if SAVE:
+            dgap.save_d_gaps()
+
+        log(info="  -  Computing k-means...")
+        kmeans = KMeansClustering(collection=collection, data_name=config.name, k=config.n_cluster)
+        kmeans.fit()
+        if SAVE:
+            kmeans.save_labeling()
+
+        log(info="  -  Computing centroids...")
+        collection_clusters = kmeans.clusters
+        collection_clusters.compute_centroids()
+        if SAVE:
+            collection_clusters.save_centroids()
+
+        log(info="  -  Solving TSP...")
+        reassignment_computation = DocIdReassignment(
+            cluster=collection_clusters,
+            data_name=config.name
+        )
+        reassignment_computation.solve()
+        if SAVE:
+            reassignment_computation.save_order()
+
+        log(info="  - Reordering clusters...")
+
+        reordered_clusters  = []
+
+        for i in range(collection_clusters.n_cluster):
+
+            print(f"  - Evaluating cluster {i}")
+
+            N = 100
+
+            config_sub = DataConfig(name=f"{config.name}-c{i}", n_cluster=N)
+
+            cluster = collection_clusters[i]
+
+            if cluster.shape[0] >= N:
+                RCV1_cluster = RCV1Collection(data=cluster)
+                reordered_cluster = self._permutation_reassignment(collection=RCV1_cluster, config=config_sub).data
+            else:
+                centroid = csr_matrix(collection_clusters.centroids[i])
+                distances = pairwise_distances(centroid, cluster)[0]
+                order = np.argsort(distances)
+                reordered_cluster = cluster[order]
+
+            reordered_clusters.append(reordered_cluster)
+
+        centroids_reordered = [reordered_clusters[i] for i in reassignment_computation.centroids_order]
+        data_reordered = vstack(centroids_reordered)
+        collection_reassigned = RCV1Collection(data=data_reordered)
+
+        log(info="  -  Computing d-gap after reassignment...")
+        dgap_reass = DGapComputationReassigned(collection=collection_reassigned, data_name=config.name)
+        dgap_reass.compute_d_gaps()
+        if SAVE:
+            dgap_reass.save_d_gaps()
+
+        log(info="  -  Performing inference...")
+        inference = DGapInference(d_gap_original=dgap, d_gap_reassigned=dgap_reass, data_name=config.name)
+        inference.plot_avg_d_gap()
+
+        self._compression = inference.avg_compression
+        self._compression_computed = True

@@ -443,6 +443,9 @@ class DGapInference:
         plt.legend()
 
         # Save
+        sample_dir = get_collection_dir(collection_name=self._data_name)
+        make_dir(path_=sample_dir)
+
         out = path.join(get_collection_dir(collection_name=self._data_name), "avg_d_gap.png")
         plt.savefig(out)
 

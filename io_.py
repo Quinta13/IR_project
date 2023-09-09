@@ -157,6 +157,8 @@ def get_data_sorted_fp() -> str:
 
 # OPERATIONS
 
+SAVE = True
+
 def load_json(path_: str) -> Dict | List:
     """
     Load a dictionary or list from a local JSON file.
