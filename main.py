@@ -6,8 +6,8 @@ from io_ import get_dataset_dir, store_json, load_json
 from model.rcv1 import DataConfig
 from model.reassignment import OneStepReassignment, TwoStepReassignment
 
-def two_step():
 
+def two_step():
     reassignment = TwoStepReassignment()
     config = DataConfig(name=f"rcv1-170-v2", n_cluster=170)
 
@@ -17,7 +17,6 @@ def two_step():
 
 
 def one_step():
-
     # Compression computation
 
     reassignment = OneStepReassignment()
@@ -28,13 +27,12 @@ def one_step():
     print(f"Evaluating clusters: {ks}")
 
     for k in ks:
-
         print(f"Evaluating number of clusters: {k}")
 
         config = DataConfig(name=f"rcv1-{k}", n_cluster=k)
-        compression = reassignment.compression(config=config)
+        reassignment.compute_compression(config=config)
 
-        compression_dir[str(k)] = float(compression)
+        compression_dir[str(k)] = float(reassignment.compression)
 
     out_fp = path.join(get_dataset_dir(), "results.json")
 
@@ -59,5 +57,4 @@ def one_step():
 
 
 if __name__ == "__main__":
-
     one_step()
