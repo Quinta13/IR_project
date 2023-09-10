@@ -1,4 +1,5 @@
 from os import path
+from typing import List
 
 from matplotlib import pyplot as plt
 
@@ -7,23 +8,35 @@ from model.rcv1 import DataConfig
 from model.reassignment import OneStepReassignment, TwoStepReassignment
 
 
-def two_step():
-    reassignment = TwoStepReassignment()
-    config = DataConfig(name=f"rcv1-170-v2", n_cluster=170)
+def two_step(n_cluster1: int, n_cluster2: int) -> float:
+    """
+    Perform two-step clustering
+    :param n_cluster1: first level clusters
+    :param n_cluster2: second level clusters
+    :return: compression
+    """
+
+    reassignment = TwoStepReassignment(two_step_k=n_cluster2)
+
+    config = DataConfig(name=f"rcv1-{n_cluster1}-v2", n_cluster=n_cluster1)
 
     reassignment.compute_compression(config=config)
 
-    print(reassignment.compression)
+    return reassignment.compression
 
 
-def one_step():
+def one_step(ks: List[int]):
+    """
+    Perform one-step clustering
+    :param ks: list of clustering to evaluate
+    """
+
     # Compression computation
 
     reassignment = OneStepReassignment()
 
     compression_dir = dict()
 
-    ks = [i * 10 for i in range(10, 31)]
     print(f"Evaluating clusters: {ks}")
 
     for k in ks:
@@ -57,4 +70,6 @@ def one_step():
 
 
 if __name__ == "__main__":
-    one_step()
+
+    one_step(ks=[i * 10 for i in range(10, 31)])
+    two_step(n_cluster1=170, n_cluster2=100)
