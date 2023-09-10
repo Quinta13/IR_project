@@ -28,7 +28,7 @@ This boolean flag controls whether general logging is enabled or disabled,
 
 """
 
-LOG: bool = False
+LOG: bool = True
 LOG_IO: bool = False
 
 
@@ -157,7 +157,7 @@ def get_data_sorted_fp() -> str:
 
 # OPERATIONS
 
-SAVE = True
+SAVE = False
 
 def load_json(path_: str) -> Dict | List:
     """

@@ -72,4 +72,6 @@ def one_step(ks: List[int]):
 if __name__ == "__main__":
 
     one_step(ks=[i * 10 for i in range(10, 31)])
-    two_step(n_cluster1=170, n_cluster2=100)
+
+    # compression = two_step(n_cluster1=170, n_cluster2=100)
+    # print(compression)
