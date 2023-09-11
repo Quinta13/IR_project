@@ -19,8 +19,7 @@ from typing import Dict
 
 import numpy as np
 from scipy.sparse import csr_matrix
-from scipy.spatial.distance import pdist, squareform
-from sklearn.cluster import KMeans, MiniBatchKMeans
+from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 
 from io_ import log, store_json, get_collection_dir, make_dir, load_json, store_dense_matrix, load_dense_matrix

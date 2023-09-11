@@ -87,9 +87,9 @@ class DGapComputation:
         :return: The bit size required to represent the given d-gap value.
         """
 
-        # The initial value of the postings has gap equals to zero
+        # It copes with the case the first doc-id equals 0
         if gap == 0:
-            return 0
+            return 1
         return math.ceil(math.log(gap) + 1 / 7) * 8  # VB representation
 
     def compute_d_gaps(self, try_load: bool = True):

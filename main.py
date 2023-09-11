@@ -33,15 +33,15 @@ def one_step(ks: List[int]):
 
     # Compression computation
 
-    reassignment = OneStepReassignment()
-
     compression_dir = dict()
 
     print(f"Evaluating clusters: {ks}")
 
     for k in ks:
+
         print(f"Evaluating number of clusters: {k}")
 
+        reassignment = OneStepReassignment()
         config = DataConfig(name=f"rcv1-{k}", n_cluster=k)
         reassignment.compute_compression(config=config)
 
