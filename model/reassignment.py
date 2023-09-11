@@ -476,28 +476,36 @@ class OneStepReassignment:
     """
     Performs all operations for Doc-ID reassignment with one-step clustering.
 
-    This class provides a comprehensive workflow for Doc-ID reassignment using one-step clustering. It includes methods for loading data, computing compression, and performing the reassignment. The computed compression can be accessed as an attribute.
+    This class provides a comprehensive workflow for Doc-ID reassignment using one-step clustering.
+    It includes methods for loading data, computing compression, and performing the reassignment.
+    The computed compression can be accessed as an attribute.
 
     Attributes:
         _dataloader (RCV1Loader): An instance of RCV1Loader used for data loading.
-        _compression (float): The computed compression value after Doc-ID reassignment.
-        _compression_computed (bool): A flag indicating whether the compression value has been computed.
+        _config (DataConfig): configuration for data processing, including the number of clusters 'n_cluster' and other settings.
+        _inference (DGapInference): Inference on compression after Doc-ID reassignment.
+        _inference_computed (bool): A flag indicating whether the reassignment value has been computed.
+
     """
 
     # CONSTRUCTOR
 
-    def __init__(self):
+    def __init__(self, config: DataConfig):
         """
         Initializes an instance of the OneStepReassignment class.
 
         The class is initialized with an RCV1Loader instance for data loading.
         The compression-related attributes are also initialized
+
+        :param config: configuration for data processing, including the number of clusters 'n_cluster' and other settings.
         """
 
         self._dataloader: RCV1Loader = RCV1Loader()
 
-        self._compression: float = 0.
-        self._compression_computed: bool = False
+        self._config: DataConfig = config
+
+        self._inference: DGapInference | None = None
+        self._inference_computed: bool = False
 
     # REPRESENTATION
     def __str__(self) -> str:
@@ -506,7 +514,7 @@ class OneStepReassignment:
         :return: string representation for the object.
         """
 
-        return f"OneStepReassignment[]"
+        return f"OneStepReassignmen({self._config.name})[]"
 
     def __repr__(self) -> str:
         """
@@ -535,7 +543,9 @@ class OneStepReassignment:
 
         # 1. Clustering using K-Means
         log(info=" - Evaluating clustering...")
-        kmeans = KMeansClustering(collection=collection, data_name=config.name, k=config.n_cluster)
+        kmeans = KMeansClustering(collection=collection,
+                                  data_name=config.name,
+                                  k=config.n_cluster)
         kmeans.fit()
         if SAVE:
             kmeans.save_labeling()
@@ -559,7 +569,7 @@ class OneStepReassignment:
 
         return reassignment_computation.reassign_doc_id()
 
-    def compute_compression(self, config: DataConfig):
+    def reassign(self):
         """
         Computes compression after Doc-ID reassignment.
 
@@ -570,13 +580,11 @@ class OneStepReassignment:
         4. Computes the d-gap values for the reassigned data collection.
         5. Performs inference to calculate the average compression.
 
-        :param config:  configuration for data processing, including the dataset name and the number of clusters.
-
         """
 
         # Computation check
-        if self._compression_computed:
-            log(info="Compression computed yet. Use `compression` to retrieve it")
+        if self._inference_computed:
+            log(info="Reassignment computed yet. Use `inference` to retrieve it")
             return
 
         # 1. Loads the input data collection using the RCV1Loader instance.
@@ -584,40 +592,39 @@ class OneStepReassignment:
 
         # 2. Computes the d-gap values for the original data collection.
         log(info=" - Computing d-gap...")
-        dgap = DGapComputation(collection=collection, data_name=config.name)
+        dgap = DGapComputation(collection=collection, data_name=self._config.name)
         dgap.compute_d_gaps()
         if SAVE:
             dgap.save_d_gaps()
 
         # 3. Performs permutation-based Doc-ID reassignment using `_permutation_reassignment` method.
-        collection_reassigned = self._permutation_reassignment(collection=collection, config=config)
+        collection_reassigned = self._permutation_reassignment(collection=collection, config=self._config)
 
         # 4. Computes the d-gap values for the reassigned data collection.
         log(info=" - Computing d-gap after reassignment...")
-        dgap_reass = DGapComputationReassigned(collection=collection_reassigned, data_name=config.name)
+        dgap_reass = DGapComputationReassigned(collection=collection_reassigned, data_name=self._config.name)
         dgap_reass.compute_d_gaps()
         if SAVE:
             dgap_reass.save_d_gaps()
 
         # 5. Performs inference to calculate the average compression.
         log(info=" - Performing inference...")
-        inference = DGapInference(d_gap_original=dgap, d_gap_reassigned=dgap_reass, data_name=config.name)
-        inference.plot_avg_d_gap()
+        inference = DGapInference(d_gap_original=dgap, d_gap_reassigned=dgap_reass, data_name=self._config.name)
 
-        self._compression = inference.avg_compression
-        self._compression_computed = True
+        self._inference = inference
+        self._inference_computed = True
 
     @property
-    def compression(self) -> float:
+    def inference(self) -> DGapInference:
         """
         Return the computed compression value.
         :return: compression value.
         """
 
-        if not self._compression_computed:
-            raise Exception("Compression not computed yet. Use `compute_compression`.")
+        if not self._inference_computed:
+            raise Exception("Reassignment not computed yet. Use `reassign`.")
 
-        return self._compression
+        return self._inference
 
 
 class TwoStepReassignment(OneStepReassignment):
@@ -627,24 +634,27 @@ class TwoStepReassignment(OneStepReassignment):
     This class extends the OneStepReassignment class to provide a two-step clustering approach for Doc-ID reassignment. It includes additional methods and overrides the compute_compression method.
 
     Attributes:
-            _dataloader (RCV1Loader): An instance of RCV1Loader used for data loading.
-            _compression (float): The computed compression value after Doc-ID reassignment.
-            _compression_computed (bool): A flag indicating whether the compression value has been computed.
+        _dataloader (RCV1Loader): An instance of RCV1Loader used for data loading.
+        _config (DataConfig): configuration for data processing, including the number of clusters 'n_cluster' and other settings.
+        _inference (DGapInference): Inference on compression after Doc-ID reassignment.
+        _inference_computed (bool): A flag indicating whether the reassignment value has been computed.
+        _k2: The number of clusters for two-step clustering.
     """
 
     # CONSTRUCTOR
 
-    def __init__(self, two_step_k: int):
+    def __init__(self, config: DataConfig, k2: int):
         """
         Initializes an instance of the TwoStepReassignment class.
 
         The constructor calls the constructor of the parent class (OneStepReassignment) to inherit its attributes and methods.
 
-        :param two_step_k: number of clusters for two-step clustering
+        :param config: configuration for data processing, including the number of clusters 'n_cluster' and other setting.
+        :param k2: number of clusters for two-step clustering.
         """
 
-        super().__init__()
-        self._two_step_k: int = two_step_k
+        super().__init__(config=config)
+        self._k2: int = k2
 
     # REPRESENTATION
     def __str__(self) -> str:
@@ -653,7 +663,7 @@ class TwoStepReassignment(OneStepReassignment):
         :return: string representation for the object.
         """
 
-        return f"TwoStepReassignment[2-step-k: {self._two_step_k}]"
+        return f"TwoStepReassignment[2-step-k: {self._k2}]"
 
     def __repr__(self) -> str:
         """
@@ -665,7 +675,7 @@ class TwoStepReassignment(OneStepReassignment):
 
     # COMPRESSION
 
-    def compute_compression(self, config: DataConfig):
+    def reassign(self):
         """
         Computes compression after Doc-ID reassignment using a two-step clustering approach.
 
@@ -679,11 +689,10 @@ class TwoStepReassignment(OneStepReassignment):
         7. Computes the d-gap values after reassignment.
         8. Performs inference to calculate the average compression.
 
-        :param config:  configuration for data processing, including the dataset name and the number of clusters 'n_cluster'.
         """
 
-        if self._compression_computed:
-            log(info="Compression computed yet. Use `compression` to retrieve it")
+        if self._inference_computed:
+            log(info="Reassignment computed yet. Use `inference` to retrieve it")
             return
 
         # 1. Loads the input data collection.
@@ -691,14 +700,14 @@ class TwoStepReassignment(OneStepReassignment):
 
         # 2. Computes the d-gap values for the original data collection.
         log(info=" - Computing d-gap...")
-        dgap = DGapComputation(collection=collection, data_name=config.name)
+        dgap = DGapComputation(collection=collection, data_name=self._config.name)
         dgap.compute_d_gaps()
         if SAVE:
             dgap.save_d_gaps()
 
         # 3. Performs K-Means clustering on the input data collection.
         log(info=" - Computing k-means...")
-        kmeans = KMeansClustering(collection=collection, data_name=config.name, k=config.n_cluster)
+        kmeans = KMeansClustering(collection=collection, data_name=self._config.name, k=self._config.n_cluster)
         kmeans.fit()
         if SAVE:
             kmeans.save_labeling()
@@ -714,7 +723,7 @@ class TwoStepReassignment(OneStepReassignment):
         log(info=" - Solving TSP...")
         reassignment_computation = DocIdReassignment(
             cluster=collection_clusters,
-            data_name=config.name
+            data_name=self._config.name
         )
         reassignment_computation.solve()
         if SAVE:
@@ -728,11 +737,11 @@ class TwoStepReassignment(OneStepReassignment):
         for i in range(collection_clusters.n_cluster):
 
             print(f"  - Evaluating cluster {i}")
-            config_sub = DataConfig(name=f"{config.name}-c{i}", n_cluster=self._two_step_k)
+            config_sub = DataConfig(name=f"{self._config.name}-c{i}", n_cluster=self._k2)
 
             cluster = collection_clusters[i]
 
-            if cluster.shape[0] >= self._two_step_k:
+            if cluster.shape[0] >= self._k2:
                 RCV1_cluster = RCV1Collection(data=cluster)
                 reordered_cluster = self._permutation_reassignment(collection=RCV1_cluster, config=config_sub).data
             else:
@@ -749,15 +758,14 @@ class TwoStepReassignment(OneStepReassignment):
 
         # 7. Computes the d-gap values after reassignment.
         log(info=" - Computing d-gap after reassignment...")
-        dgap_reass = DGapComputationReassigned(collection=collection_reassigned, data_name=config.name)
+        dgap_reass = DGapComputationReassigned(collection=collection_reassigned, data_name=self._config.name)
         dgap_reass.compute_d_gaps()
         if SAVE:
             dgap_reass.save_d_gaps()
 
         # 8. Performs inference to calculate the average compression.
         log(info=" - Performing inference...")
-        inference = DGapInference(d_gap_original=dgap, d_gap_reassigned=dgap_reass, data_name=config.name)
-        inference.plot_avg_d_gap()
+        inference = DGapInference(d_gap_original=dgap, d_gap_reassigned=dgap_reass, data_name=self._config.name)
 
-        self._compression = inference.avg_compression
-        self._compression_computed = True
+        self._inference = inference
+        self._inference_computed = True

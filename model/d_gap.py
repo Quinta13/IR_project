@@ -17,6 +17,7 @@ These classes can be used to analyze and optimize document orderings for various
 
 import math
 from os import path
+from typing import Tuple
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -379,6 +380,16 @@ class DGapInference:
         """
 
         return str(self)
+
+    @property
+    def d_gaps(self) -> Tuple[DGapComputation, DGapComputationReassigned]:
+        """
+        Return DGap computation for original and reassigned doc-ids.
+
+        :return: d-gap computations both original and reassigned.
+        """
+
+        return self._d_gap_original, self._d_gap_reassigned
 
     # INFERENCE
 

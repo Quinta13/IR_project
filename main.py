@@ -16,13 +16,16 @@ def two_step(n_cluster1: int, n_cluster2: int) -> float:
     :return: compression
     """
 
-    reassignment = TwoStepReassignment(two_step_k=n_cluster2)
-
     config = DataConfig(name=f"rcv1-{n_cluster1}-v2", n_cluster=n_cluster1)
+    reassignment = TwoStepReassignment(config=config, k2=n_cluster2)
 
-    reassignment.compute_compression(config=config)
+    reassignment.reassign()
 
-    return reassignment.compression
+    inference = reassignment.inference
+
+    inference.plot_avg_d_gap()
+
+    return inference.avg_compression
 
 
 def one_step(ks: List[int]):
@@ -41,11 +44,11 @@ def one_step(ks: List[int]):
 
         print(f"Evaluating number of clusters: {k}")
 
-        reassignment = OneStepReassignment()
         config = DataConfig(name=f"rcv1-{k}", n_cluster=k)
-        reassignment.compute_compression(config=config)
+        reassignment = OneStepReassignment(config=config)
+        reassignment.reassign()
 
-        compression_dir[str(k)] = float(reassignment.compression)
+        compression_dir[str(k)] = float(reassignment.inference.avg_compression)
 
     out_fp = path.join(get_dataset_dir(), "results.json")
 
